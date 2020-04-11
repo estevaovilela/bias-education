@@ -5,14 +5,18 @@ date: "08/04/2020"
 output: html_document
 ---
 
-```{r}
+```{r library}
 library(tidyverse)
 library(data.table)
-library(geobr)
 library(sf)
+library(geobr)
 ```
 
-```{r}
+```{r options}
+options(scipen = 999)
+```
+
+```{r reading}
 df_censo_18 <- fread("./data/treated/minas_gerais_18.csv")
 df_censo_19 <- fread("./data/treated/minas_gerais_19.csv")
 ```
@@ -51,7 +55,6 @@ df_censo_18 %>%
   mutate(dif = (`2019` - `2018`) / `2018`)
 ```
 
-
 # Variação desagregada por 
 
 Sexo
@@ -87,7 +90,7 @@ df_censo_18 %>%
               summarise(n_alunos = n()) %>% 
               mutate(ano = 2019)) %>% 
   spread(ano, n_alunos) %>% 
-  mutate(dif = (`2019` - `2018`) / `2018`)
+  mutate(dif = (`2019` - `2018`) / `2018`) %>% View()
 ```
 
 Distorção idade-série
@@ -108,6 +111,124 @@ df_censo_18 %>%
   spread(ano, n_alunos) %>% 
   mutate(dif = (`2019` - `2018`) / `2018`)
 ```
+
+Zona residencial do aluno
+
+```{r}
+df_censo_18 %>% 
+  filter(TP_ETAPA_ENSINO == 25) %>% 
+  group_by(TP_DEPENDENCIA, TP_ZONA_RESIDENCIAL) %>% 
+  summarise(n_alunos = n()) %>% 
+  mutate(ano = 2018) %>% 
+  bind_rows(df_censo_19 %>% 
+              filter(TP_ETAPA_ENSINO == 25) %>% 
+              group_by(TP_DEPENDENCIA, TP_ZONA_RESIDENCIAL) %>% 
+              summarise(n_alunos = n()) %>% 
+              mutate(ano = 2019)) %>% 
+  spread(ano, n_alunos) %>% 
+  mutate(dif = (`2019` - `2018`) / `2018`)
+```
+
+Vimos que a distorção idade-série é uma variável muito importante para as variações no número de alunos. Temos um viés pequeno viés de sexo e de zona residencial do aluno.
+
+Vamos analisar uma pirâmide etária:
+
+```{r}
+df_piramide_18 <- df_censo_18 %>% 
+  filter(TP_ETAPA_ENSINO == 25) %>% 
+  group_by(TP_DEPENDENCIA, TP_SEXO, NU_IDADE_REFERENCIA) %>% 
+  summarise(n_alunos = n()) %>% 
+  mutate(ano = 2018)
+
+df_piramide_19 <- df_censo_19 %>% 
+  filter(TP_ETAPA_ENSINO == 25) %>% 
+  group_by(TP_DEPENDENCIA, TP_SEXO, NU_IDADE_REFERENCIA) %>% 
+  summarise(n_alunos = n()) %>% 
+  mutate(ano = 2019)
+
+df_piramide_18 %>% 
+  bind_rows(df_piramide_19) %>% 
+  ungroup() %>% 
+  mutate(TP_DEPENDENCIA = factor(TP_DEPENDENCIA, 
+                                 labels = c("Federal", "Estadual", "Municipal", "Privada"))) %>%
+  mutate(n_alunos = ifelse(TP_SEXO == 1, log10(n_alunos), -log10(n_alunos))) %>% 
+  ggplot(aes(x = NU_IDADE_REFERENCIA, y = n_alunos, 
+             fill = factor(ano))) +
+  geom_col(position = "identity", alpha = 0.5) +
+  coord_flip() +
+  facet_wrap(~ TP_DEPENDENCIA)
+```
+
+Um gráfico de frequência acumulada... Essa ideia não ficou muito boa...
+Vamos no tamanho do eixo Y o quanto aquela diferença naquela idade representa do total em termos absolutos e na cor o quanto ela variou em relação ao ano de 2018
+
+Muito esforço pra pouco resultado.... O gráfico como está não mostra nada
+
+Esse agora mostra o que realmente queremos mostrar.
+
+```{r}
+df_freq_acum_18 <- df_censo_18 %>% 
+  filter(TP_ETAPA_ENSINO == 25) %>%
+  mutate(grupo_etario = case_when(
+    NU_IDADE_REFERENCIA < 15 ~ "< 15",
+    NU_IDADE_REFERENCIA == 15 ~ "15",
+    NU_IDADE_REFERENCIA == 16 ~ "16",
+    NU_IDADE_REFERENCIA <= 18 ~ "17-18",
+    NU_IDADE_REFERENCIA <= 25 ~ "19-25",
+    NU_IDADE_REFERENCIA > 25 ~ "> 25",
+  )) %>% 
+  mutate(TP_DEPENDENCIA = factor(TP_DEPENDENCIA, 
+                                 labels = c("Federal", "Estadual", "Municipal", "Privada"))) %>%
+  group_by(TP_DEPENDENCIA, grupo_etario) %>% 
+  summarise(n_alunos = n()) %>% 
+  mutate(ano = 2018)
+
+df_freq_acum_19 <- df_censo_19 %>% 
+  filter(TP_ETAPA_ENSINO == 25) %>% 
+  mutate(grupo_etario = case_when(
+    NU_IDADE_REFERENCIA < 15 ~ "< 15",
+    NU_IDADE_REFERENCIA == 15 ~ "15",
+    NU_IDADE_REFERENCIA == 16 ~ "16",
+    NU_IDADE_REFERENCIA <= 18 ~ "17-18",
+    NU_IDADE_REFERENCIA <= 25 ~ "19-25",
+    NU_IDADE_REFERENCIA > 25 ~ "> 25",
+  )) %>% 
+  mutate(TP_DEPENDENCIA = factor(TP_DEPENDENCIA, 
+                                 labels = c("Federal", "Estadual", "Municipal", "Privada"))) %>%
+  group_by(TP_DEPENDENCIA, grupo_etario) %>% 
+  summarise(n_alunos = n()) %>% 
+  mutate(ano = 2019)
+
+df_freq_acum <- df_freq_acum_18 %>% 
+  group_by(TP_DEPENDENCIA) %>% 
+  mutate(total_dependencia = sum(n_alunos)) %>% 
+  left_join(df_freq_acum_19 %>% 
+              group_by(TP_DEPENDENCIA) %>% 
+              mutate(total_dependencia = sum(n_alunos)),
+            by = c("TP_DEPENDENCIA", "grupo_etario"))
+
+df_freq_acum$n_alunos.y[is.na(df_freq_acum$n_alunos.y)] <- 0
+df_freq_acum[2, "ano.y"] <- 2019
+df_freq_acum[2, "total_dependencia.y"] <- 762
+
+df_freq_acum <- df_freq_acum %>% 
+  mutate(grupo_etario = factor(grupo_etario,
+                               levels = c("< 15", "15", "16", "17-18",
+                                          "19-25", "> 25"))) %>% 
+  arrange(TP_DEPENDENCIA, grupo_etario) %>% 
+  mutate(dif_total = total_dependencia.y - total_dependencia.x) %>%
+  select(-starts_with("total")) %>% 
+  mutate(dif_idade = n_alunos.y - n_alunos.x) %>% 
+  mutate(pct_total = abs(dif_idade) / abs(dif_total),
+         pct_dif_idade = dif_idade / n_alunos.x)
+
+df_freq_acum %>% 
+  ggplot(aes(x = grupo_etario, y = dif_idade)) +
+  geom_col() +
+  facet_wrap(~TP_DEPENDENCIA) +
+  theme_minimal()
+```
+
 
 # Bivariate maps
 
