@@ -1,0 +1,187 @@
+---
+title: "Untitled"
+author: "Estevão de Almeida Vilela"
+date: "08/04/2020"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(data.table)
+library(geobr)
+library(sf)
+```
+
+```{r}
+df_censo_18 <- fread("./data/treated/minas_gerais_18.csv")
+df_censo_19 <- fread("./data/treated/minas_gerais_19.csv")
+```
+
+Variação total em Minas Gerais
+
+Observação importante: queda acentuada na rede federal
+
+```{r}
+df_censo_18 %>% 
+  group_by(TP_DEPENDENCIA) %>% 
+  summarise(n_alunos = n()) %>% 
+  mutate(ano = 2018) %>% 
+  bind_rows(df_censo_19 %>% 
+              group_by(TP_DEPENDENCIA) %>% 
+              summarise(n_alunos = n()) %>% 
+              mutate(ano = 2019)) %>% 
+  spread(ano, n_alunos) %>% 
+  mutate(dif = (`2019` - `2018`) / `2018`)
+```
+
+Vamos restringir ao 1º do Ensino Médio: a mesma queda que ocorreu no total de matrículas ocorreu também no 1º, por volta de 8,5%. Suspeita de caiu muito as matrículas na EJA
+
+```{r}
+df_censo_18 %>% 
+  filter(TP_ETAPA_ENSINO == 25) %>% 
+  group_by(TP_DEPENDENCIA) %>% 
+  summarise(n_alunos = n()) %>% 
+  mutate(ano = 2018) %>% 
+  bind_rows(df_censo_19 %>% 
+              filter(TP_ETAPA_ENSINO == 25) %>% 
+              group_by(TP_DEPENDENCIA) %>% 
+              summarise(n_alunos = n()) %>% 
+              mutate(ano = 2019)) %>% 
+  spread(ano, n_alunos) %>% 
+  mutate(dif = (`2019` - `2018`) / `2018`)
+```
+
+
+# Variação desagregada por 
+
+Sexo
+
+```{r}
+df_censo_18 %>% 
+  filter(TP_ETAPA_ENSINO == 25) %>% 
+  group_by(TP_DEPENDENCIA, TP_SEXO) %>% 
+  summarise(n_alunos = n()) %>% 
+  mutate(ano = 2018) %>% 
+  bind_rows(df_censo_19 %>% 
+              filter(TP_ETAPA_ENSINO == 25) %>% 
+              group_by(TP_DEPENDENCIA, TP_SEXO) %>% 
+              summarise(n_alunos = n()) %>% 
+              mutate(ano = 2019)) %>% 
+  spread(ano, n_alunos) %>% 
+  mutate(dif = (`2019` - `2018`) / `2018`)
+```
+
+Raça/Cor
+
+O número de não declarados caiu bastante, e teve a campanha de atualização do cadastro, pode ter rolado uma auto identificação ai...
+
+```{r}
+df_censo_18 %>% 
+  filter(TP_ETAPA_ENSINO == 25) %>% 
+  group_by(TP_DEPENDENCIA, TP_COR_RACA) %>% 
+  summarise(n_alunos = n()) %>% 
+  mutate(ano = 2018) %>% 
+  bind_rows(df_censo_19 %>% 
+              filter(TP_ETAPA_ENSINO == 25) %>% 
+              group_by(TP_DEPENDENCIA, TP_COR_RACA) %>% 
+              summarise(n_alunos = n()) %>% 
+              mutate(ano = 2019)) %>% 
+  spread(ano, n_alunos) %>% 
+  mutate(dif = (`2019` - `2018`) / `2018`)
+```
+
+Distorção idade-série
+
+```{r}
+df_censo_18 %>% 
+  filter(TP_ETAPA_ENSINO == 25) %>% 
+  mutate(distorcao = ifelse(NU_IDADE_REFERENCIA - 15 >= 2, "YES", "NO")) %>% 
+  group_by(TP_DEPENDENCIA, distorcao) %>% 
+  summarise(n_alunos = n()) %>% 
+  mutate(ano = 2018) %>% 
+  bind_rows(df_censo_19 %>% 
+              filter(TP_ETAPA_ENSINO == 25) %>% 
+              mutate(distorcao = ifelse(NU_IDADE_REFERENCIA - 15 >= 2, "YES", "NO")) %>% 
+              group_by(TP_DEPENDENCIA, distorcao) %>% 
+              summarise(n_alunos = n()) %>% 
+              mutate(ano = 2019)) %>% 
+  spread(ano, n_alunos) %>% 
+  mutate(dif = (`2019` - `2018`) / `2018`)
+```
+
+# Bivariate maps
+
+Exploratório... A principal variável é a distorção idade-série, como medir isso em termos de componentes principais? Importante!
+
+```{r}
+df_censo_18 %>% 
+  filter(TP_ETAPA_ENSINO == 25,
+         TP_DEPENDENCIA == 2,
+         TP_COR_RACA %in% c(1,2,3)) %>% 
+  mutate(distorcao = ifelse(NU_IDADE_REFERENCIA - 15 >= 2, "YES", "NO"),
+         TP_COR_RACA = ifelse(TP_COR_RACA == 1, "BRANCO", "NEGRO")) %>% 
+  group_by(TP_SEXO, TP_COR_RACA, distorcao) %>% 
+  summarise(n_alunos = n()) %>% 
+  mutate(ano = 2018) %>% 
+  bind_rows(df_censo_19 %>% 
+              filter(TP_ETAPA_ENSINO == 25,
+                     TP_DEPENDENCIA == 2,
+                     TP_COR_RACA %in% c(1,2,3)) %>% 
+              mutate(distorcao = ifelse(NU_IDADE_REFERENCIA - 15 >= 2, "YES",
+                                        "NO"),
+                     TP_COR_RACA = ifelse(TP_COR_RACA == 1, "BRANCO", "NEGRO")) %>%
+              group_by(TP_SEXO, TP_COR_RACA, distorcao) %>% 
+              summarise(n_alunos = n()) %>% 
+              mutate(ano = 2019)) %>% 
+  spread(ano, n_alunos) %>% 
+  mutate(dif = (`2019` - `2018`) / `2018`)
+```
+
+```{r}
+data_map <- df_censo_18 %>% 
+  filter(TP_ETAPA_ENSINO == 25,
+         TP_DEPENDENCIA == 2) %>% 
+  mutate(distorcao = ifelse(NU_IDADE_REFERENCIA - 15 >= 2, "YES", "NO")) %>% 
+  group_by(CO_MUNICIPIO, distorcao) %>% 
+  summarise(n_alunos = n()) %>% 
+  mutate(ano = 2018) %>% 
+  spread(distorcao, n_alunos, fill = 0) %>% 
+  mutate(total_18 = YES + NO) %>% 
+  select(-NO) %>% 
+  inner_join(df_censo_19 %>% 
+              filter(TP_ETAPA_ENSINO == 25,
+                     TP_DEPENDENCIA == 2) %>% 
+              mutate(distorcao = ifelse(NU_IDADE_REFERENCIA - 15 >= 2, "YES",
+                                        "NO")) %>%
+              group_by(CO_MUNICIPIO, distorcao) %>% 
+              summarise(n_alunos = n()) %>% 
+              mutate(ano = 2019) %>% 
+              spread(distorcao, n_alunos, fill = 0) %>% 
+              mutate(total_19 = YES + NO) %>% 
+              select(-NO),
+             by = c("CO_MUNICIPIO")) %>% 
+  mutate(dif_total = (total_19 - total_18) / total_18,
+         dif_distorcao = (YES.y - YES.x) / YES.x)
+```
+
+Usando o excelente pacote geobr
+
+```{r}
+muni <- geobr::read_municipality(code_muni = "MG")
+```
+
+```{r}
+data_map %>% 
+  filter(dif_distorcao < 1) %>% 
+  ggplot(aes(x = dif_distorcao, y = dif_total)) + 
+  geom_point()
+
+data_map %>% 
+  ggplot(aes(x = dif_distorcao)) + 
+  geom_histogram()
+
+data_map %>% 
+  ggplot(aes(x = dif_total)) + 
+  geom_histogram()
+```
+
